@@ -6,6 +6,9 @@ This project provides real-time competitive intelligence for e-commerce business
   <img src="favicon.jpeg" alt="Centered Image" width="400">
 </div>
 
+## Demonstration Video
+<iframe width="560" height="315" src="https://www.youtube.com/embed/abcdefg12345" frameborder="0" allowfullscreen></iframe>
+
 ## Features  
 - **Competitor Data Aggregation**: Track pricing and discount strategies.  
 - **Sentiment Analysis**: Analyze customer reviews for actionable insights.  
