@@ -9,7 +9,7 @@ This project provides real-time competitive intelligence for e-commerce business
 ## Demonstration Video
 
 <div style="text-align: center;">
-[![My Awesome Video](http://img.youtube.com/vi/C1RlDA-2-mY/0.jpg)](https://youtu.be/watch?v=C1RlDA-2-mY)
+  [![My Awesome Video](http://img.youtube.com/vi/C1RlDA-2-mY/0.jpg)](https://youtu.be/watch?v=C1RlDA-2-mY)
 </div>
 
 ## Features  
