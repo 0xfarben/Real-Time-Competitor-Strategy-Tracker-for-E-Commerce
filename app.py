@@ -215,7 +215,8 @@ def generate_strategy_recommendation(product_name, product_data, sentiment):
 # Load Data
 competitor_data = load_csv(r"Products.csv")
 reviews_data = load_csv(r"Reviews.csv")
-
+print(competitor_data.columns)
+print(competitor_data.head())
 if not competitor_data.empty:
     competitor_data = clean_competitor_data(competitor_data)
 
