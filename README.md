@@ -49,7 +49,7 @@ streamlit run app.py
 - `get_reviews_data.py` - Script to fetch the product's review data.
 - `scrape.py` - Script for web scraping competitor data.  
 - `reviews.csv` - Sample reviews data for sentiment analysis.  
-- `products.csv` - Sample competitor data for analysis.  
+- `products.csv` - Sample competitor data for analysis. (https://drive.google.com/file/d/1sL92n8450F_bpNQkwqb-7FUlDtx0tN-P/view?usp=sharing)
 - `requirements.txt` - List of dependencies.  
 
 ## Usage  
