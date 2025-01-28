@@ -8,14 +8,17 @@ from datetime import datetime
 from transformers import pipeline
 from statsmodels.tsa.arima.model import ARIMA
 
-# Constants
+
+############# CONSTANTS #############
 GROQ_API_KEY = "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"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-SLACK_WEBHOOK = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK = "https://hooks.slack.com/services/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"
 
-# Helper Functions
+
+############# HELPER FUNCTIONS #############
 def truncate_text(text, max_length=512):
     return text[:max_length]
+
 
 def load_csv(file_path):
     """Load a CSV file with robust error handling."""
@@ -28,19 +31,9 @@ def load_csv(file_path):
         st.error(f"Failed to load data: {e}")
         return pd.DataFrame()
     
+
 # NOTE - Use this link for manual testing of Sentiments -> 
 # https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english
-
-def clean_competitor_data(data):
-    """Clean and preprocess competitor data."""
-    # data["Discount"] = data["Discount"].astype(float)
-    data = data.dropna(subset=["Price", "MRP", "Discount"])
-    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
-    data.dropna(subset=["Date"], inplace=True)
-    data.set_index("Date", inplace=True)
-    return data
-
-
 def analyze_sentiment(reviews):
     """Analyze sentiment of reviews using a pre-trained model."""
     try:
@@ -64,9 +57,6 @@ def forecast_discounts_arima(data, future_days=5):
     Returns:
         pd.DataFrame: A DataFrame containing forecasted discounts with future dates as the index.
     """
-    if len(data) < 6:  # At least 6 rows for ARIMA to work with order=(5, 1, 0)
-        st.warning("⚠️ Insufficient data for ARIMA forecasting. At least 6 rows are required.")
-        return None
 
     try:
         # Ensure the index is a DatetimeIndex
@@ -82,8 +72,8 @@ def forecast_discounts_arima(data, future_days=5):
         # Generate forecast
         forecast = model_fit.forecast(steps=future_days)
 
-        # Create a DataFrame for the forecasted values
-        future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=future_days)
+        ## Create a DataFrame for the forecasted values
+        future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=future_days, freq='D')
         forecast_df = pd.DataFrame({"Date": future_dates, "Predicted_Discount": forecast})
         forecast_df.set_index("Date", inplace=True)
 
@@ -91,6 +81,7 @@ def forecast_discounts_arima(data, future_days=5):
     except Exception as e:
         st.error(f"ARIMA forecasting failed: {e}")
         return None
+
 
 def send_to_slack(message):
     """Send a message to Slack via a webhook."""
@@ -105,6 +96,7 @@ def send_to_slack(message):
             st.error(f"Slack API error: {response.status_code} - {response.text}")
     except Exception as e:
         st.error(f"Failed to send message to Slack: {e}")
+
 
 def generate_strategy_recommendation(product_name, product_data, sentiment):
     """
@@ -206,42 +198,46 @@ def generate_strategy_recommendation(product_name, product_data, sentiment):
         responses = groq_response.json()["choices"][0]["message"]["content"]
     except Exception as e:
         responses = f"Error generating recommendations with Groq AI: {e}"
-
-
     return responses
 
 
-############# STARTING HERE #################
-# Load Data
+############# APP STARTS HERE #############
+
+# Load CSV Files
 competitor_data = load_csv(r"Products.csv")
 reviews_data = load_csv(r"Reviews.csv")
-print(competitor_data.columns)
-print(competitor_data.head())
-if not competitor_data.empty:
-    competitor_data = clean_competitor_data(competitor_data)
 
+# Confirm the datatypes of the products.csv columns for better forecasting, and remove NULL values etc.
+if not competitor_data.empty:
+    competitor_data["Discount"] = competitor_data["Discount"].astype(float)
+    competitor_data = competitor_data.dropna(subset=["Price", "MRP", "Discount"])
+    competitor_data["Date"] = pd.to_datetime(competitor_data["Date"], errors="coerce")
+    competitor_data.dropna(subset=["Date"], inplace=True)
+    competitor_data.set_index("Date", inplace=True)
+
+# Confirm the datatypes of the of the reviews.csv coulmns for better forecasting, and remove NULL values etc.
 if not reviews_data.empty:
     reviews_data["Review_Date"] = pd.to_datetime(reviews_data["Review_Date"], errors="coerce")
     reviews_data.dropna(subset=["Review_Date", "Rating", "Review_Text"], inplace=True)
 
 # Streamlit App Setup
 st.set_page_config(
-    page_title="E-Commerce Competitor Strategy Dashboard",
+    page_title="MarketSense: E-Commerce Competitor Strategy Dashboard",
     page_icon="https://iili.io/2QnnboB.md.jpg",
     layout="wide"
 )
 
-# **Page Title (Aligned Left)**
+# Page Title
 st.markdown("<h1 style='text-align: center;'> E-Commerce 🛒 Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
 
-# **Product Selection Panel (Full Width)**
+# Product Selection Panel
 st.markdown("<h3 style='text-align: center;'>📌 Select a Product to Analyze 📌 </h3>", unsafe_allow_html=True)
 
 # Create a full-width row layout for dropdown
-col1, col2, col3 = st.columns([1, 4, 1])  # Middle column wider
+col1, col2, col3 = st.columns([1, 5, 1])  # Middle column wider
 with col2:
     products = reviews_data["Product_Name"].unique().tolist() if not reviews_data.empty else []
-    selected_product = st.selectbox("", products, key="product_select") if products else None  # Removed the default label
+    selected_product = st.selectbox("", products, key="product_select") if products else None
 
 
 # Display Product Analysis Section
@@ -251,23 +247,22 @@ if selected_product:
 
     st.divider()
     st.header(f"📈 COMPETITOR ANALYSIS")
-    # st.header(")
     st.subheader(f"📊 Product: {selected_product}")
 
-    # Sentiment Analysis
+    # ------------ Sentiment Analysis ------------ 
     if not product_reviews.empty:
         asin = product_data["Product_ASIN"].values[0]  # Get ASIN from CSV
         
         if asin:
-            # **Generate Amazon Image URL**
+            # Generate Amazon Image URL
             product_image_url = f"https://images.amazon.com/images/P/{asin}.jpg"
-            # **Display Product Image with medium size (adjust width as needed)**
+            # Display Product Image with medium size
             st.markdown(f"<div style='text-align: center;'><img src='{product_image_url}' alt='{selected_product}' width='400'/></div>", unsafe_allow_html=True)
         else:
             st.warning("⚠️ ASIN not found for this product. Image unavailable.")
         st.divider()
 
-        # **Display Product Image**
+        # Display Product Image
         st.subheader("🗣️ CUSTOMER SENTIMENT ANALYSIS")
         
         # Extract reviews and truncate text if necessary
@@ -298,12 +293,11 @@ if selected_product:
                 sentiment_df,
                 x="label",
                 color="label",
-                # title="Sentiment Analysis",
                 color_discrete_map=color_map
             )
             st.plotly_chart(fig)
 
-            # Display the top N reviews with a numbered index starting from 1
+            # Display top 10 reviews
             num_reviews_to_display = 10
             reviews_to_display = product_reviews[["Review_Title", "Review_Text"]].head(num_reviews_to_display)
             reviews_to_display.index = range(1, len(reviews_to_display) + 1)
@@ -311,12 +305,10 @@ if selected_product:
             # Create a full-width container for the reviews
             with st.container():
                 st.dataframe(reviews_to_display, use_container_width=True)
-   
-
     st.divider()
 
 
-    # Competitor Data Analysis
+    # ------------ Competitor Data Analysis ------------ 
     # Check if there's sufficient data for forecasting
     if len(product_data) < 6:
         st.warning("⚠️ Insufficient data for ARIMA forecasting. At least 6 data points are required.")
@@ -328,8 +320,6 @@ if selected_product:
         if forecast_df is not None:
             st.subheader("❄️ FORECASTED DISCOUNTS")
             st.line_chart(forecast_df["Predicted_Discount"])
-            # st.write(forecast_df)
-            
 
             # Create a full-width container for the Discounts table.
             with st.container():
@@ -339,7 +329,7 @@ if selected_product:
 
     st.divider()
 
-    # Strategic Recommendations
+    # ------------ Strategic Recommendations ------------ 
     if not product_reviews.empty and not product_data.empty:
         st.subheader("📌 STRATEGIC RECOMMENDATIONS 🧠 🌌")
         with st.spinner("Generating strategic recommendations..."):
@@ -347,20 +337,19 @@ if selected_product:
             # Generate strategy recommendation with the correct data format
             response = generate_strategy_recommendation(
                 product_name=selected_product,
-                product_data=product_data.reset_index(inplace=True),  # Replace competitor_data with historical_data
+                product_data=product_data.reset_index(inplace=True),
                 sentiment=sentiments
             )
                     
         if response:
             st.success(response)
-            
-            # Send recommendations to Slack (optional)
+            # Send recommendations to Slack Channel
             with st.spinner("Sending recommendations to Slack..."):
-                slack_message = "\n\n".join(response)
-                send_to_slack(slack_message)
+                send_to_slack(response)
         else:
             st.error("Failed to generate recommendations.")
 else:
     st.warning("⚠️ Please select a product to analyze.")
 
+# App Footer
 st.markdown("<h6 style='text-align: center;'>© 2025 MarketSense: E-Commerce Strategy Dashboard</h6>", unsafe_allow_html=True)
