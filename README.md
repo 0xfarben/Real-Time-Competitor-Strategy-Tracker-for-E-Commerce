@@ -7,7 +7,7 @@ This project provides real-time competitive intelligence for e-commerce business
 </div>
 
 ## Demonstration Video
-<iframe width="560" height="315" src="https://www.youtube.com/embed/abcdefg12345" frameborder="0" allowfullscreen></iframe>
+[![My Awesome Video](http://img.youtube.com/vi/C1RlDA-2-mY/0.jpg)](https://youtu.be/watch?v=C1RlDA-2-mY)
 
 ## Features  
 - **Competitor Data Aggregation**: Track pricing and discount strategies.  
