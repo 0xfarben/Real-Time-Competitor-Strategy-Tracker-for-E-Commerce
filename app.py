@@ -230,7 +230,7 @@ st.set_page_config(
 )
 
 # **Page Title (Aligned Left)**
-st.markdown("<h1 style='text-align: left;'>📊 E-Commerce Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>📊 E-Commerce Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
 
 # **Product Selection Panel (Full Width)**
 st.markdown("<h3 style='text-align: center;'>📌 Select a Product to Analyze</h3>", unsafe_allow_html=True)
