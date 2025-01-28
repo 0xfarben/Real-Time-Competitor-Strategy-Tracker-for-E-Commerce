@@ -44,7 +44,7 @@ streamlit run app.py
 - `app.py` - Main application script.  
 - `scrape.py` - Script for web scraping competitor data.  
 - `reviews.csv` - Sample reviews data for sentiment analysis.  
-- `competitor_data.csv` - Sample competitor data for analysis.  
+- `products.csv` - Sample competitor data for analysis.  
 - `requirements.txt` - List of dependencies.  
 
 ## Usage  
