@@ -55,19 +55,6 @@ def configure_gemini():
             print(f"Couldn't connect to Gemini: {e}")
             break
 
-# def setup_selenium_headless():
-#     chrome_options = Options()
-#     chrome_options.add_argument("--no-sandbox")
-#     chrome_options.add_argument("--headless")
-#     chrome_options.add_argument("--disable-dev-shm-usage")
-#     chrome_options.add_argument(
-#         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-#     )
-#     chrome_path = rf"{current_dir}\MileStone2\Amazon\\chromedriver.exe"  # Update this path if needed
-#     service = Service(executable_path=chrome_path)
-#     driver = webdriver.Chrome(service=service, options=chrome_options)
-#     return driver
-
 def setup_selenium_headless():
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
@@ -201,8 +188,6 @@ def get_reviews(driver, review_url, output_file):
 
         # Save reviews to CSV
         save_reviews_to_csv(reviews_data, output_file)
-        # Save the response to CSV
-        # save_reviews_to_csv(cleaned_response, output_file)
 
     except Exception as e:
         print(f"Error parsing reviews: {e}")
