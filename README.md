@@ -41,7 +41,9 @@ streamlit run app.py
 ```
 
 ## Project Files  
-- `app.py` - Main application script.  
+- `app.py` - Main application script.
+- `get_products.py` - Script to fetch the products.
+- `get_reviews_data.py` - Script to fetch the product's review data.
 - `scrape.py` - Script for web scraping competitor data.  
 - `reviews.csv` - Sample reviews data for sentiment analysis.  
 - `products.csv` - Sample competitor data for analysis.  
