@@ -33,9 +33,9 @@ def load_csv(file_path):
 
 def clean_competitor_data(data):
     """Clean and preprocess competitor data."""
-    data["Discount"] = data["Discount"].astype(float)
+    # data["Discount"] = data["Discount"].astype(float)
     data = data.dropna(subset=["Price", "MRP", "Discount"])
-    data["Date"] = pd.to_datetime(data["Scraped_At"], errors="coerce")
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
     data.dropna(subset=["Date"], inplace=True)
     data.set_index("Date", inplace=True)
     return data
