@@ -1,1 +1,57 @@
-# Real-Time-Competitor-Strategy-Tracker-for-E-Commerce
+# Real-Time Competitor Strategy Tracker for E-Commerce  
+
+## Project Overview  
+This project provides real-time competitive intelligence for e-commerce businesses. It tracks competitor pricing, discount strategies, and customer sentiment using machine learning and large language models.  
+
+## Features  
+- **Competitor Data Aggregation**: Track pricing and discount strategies.  
+- **Sentiment Analysis**: Analyze customer reviews for actionable insights.  
+- **Predictive Modeling**: Forecast competitor discounts.  
+- **Slack Integration**: Get real-time notifications on competitor activity.  
+
+## Setup Instructions  
+
+### 1. Clone the Repository  
+```sh  
+git clone <repository-url>  
+cd <repository-directory>  
+```
+
+### 2. Install Dependencies  
+```sh  
+pip install -r requirements.txt  
+```
+
+### 3. Configure API Keys  
+
+#### Groq API Key  
+1. Sign up for a Groq account at [Groq](https://groq.com).  
+2. Obtain your API key from the Groq dashboard.  
+3. Add the API key to the `app.py` file.  
+
+#### Slack Webhook Integration  
+1. Go to the [Slack API](https://api.slack.com).  
+2. Create a new app and enable **Incoming Webhooks**.  
+3. Add a webhook to a Slack channel and copy the generated URL.  
+4. Add this URL to the `app.py` file.  
+
+### 4. Run the Application  
+```sh  
+streamlit run app.py  
+```
+
+## Project Files  
+- `app.py` - Main application script.  
+- `scrape.py` - Script for web scraping competitor data.  
+- `reviews.csv` - Sample reviews data for sentiment analysis.  
+- `competitor_data.csv` - Sample competitor data for analysis.  
+- `requirements.txt` - List of dependencies.  
+
+## Usage  
+1. Launch the Streamlit app.  
+2. Select a product from the sidebar.  
+3. View competitor analysis, sentiment trends, and discount forecasts.  
+4. Get strategic recommendations and real-time notifications.  
+
+## License  
+This project is licensed under the MIT License.
