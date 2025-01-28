@@ -58,7 +58,7 @@ streamlit run app.py
 
 ## Usage  
 1. Launch the Streamlit app.  
-2. Select a product from the sidebar.  
+2. Select a product from the dropdown menu.  
 3. View competitor analysis, sentiment trends, and discount forecasts.  
 4. Get strategic recommendations and real-time notifications.  
 
