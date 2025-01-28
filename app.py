@@ -211,6 +211,7 @@ def generate_strategy_recommendation(product_name, product_data, sentiment):
     return responses
 
 
+############# STARTING HERE #################
 # Load Data
 competitor_data = load_csv(r"Products.csv")
 reviews_data = load_csv(r"Reviews.csv")
@@ -230,10 +231,10 @@ st.set_page_config(
 )
 
 # **Page Title (Aligned Left)**
-st.markdown("<h1 style='text-align: center;'>📊 E-Commerce Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'> E-Commerce 🛒 Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
 
 # **Product Selection Panel (Full Width)**
-st.markdown("<h3 style='text-align: center;'>📌 Select a Product to Analyze</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>📌 Select a Product to Analyze 📌 </h3>", unsafe_allow_html=True)
 
 # Create a full-width row layout for dropdown
 col1, col2, col3 = st.columns([1, 4, 1])  # Middle column wider
@@ -248,7 +249,9 @@ if selected_product:
     product_data = competitor_data[competitor_data["Product_Name"] == selected_product]
 
     st.divider()
-    st.header(f"📈 Competitor Analysis: {selected_product}")
+    st.header(f"📈 COMPETITOR ANALYSIS")
+    # st.header(")
+    st.subheader(f"📊 Product: {selected_product}")
 
     # Sentiment Analysis
     if not product_reviews.empty:
@@ -264,7 +267,7 @@ if selected_product:
         st.divider()
 
         # **Display Product Image**
-        st.subheader("🗣️ Customer Sentiment Analysis")
+        st.subheader("🗣️ CUSTOMER SENTIMENT ANALYSIS")
         
         # Extract reviews and truncate text if necessary
         reviews = product_reviews["Review_Text"].apply(lambda x: truncate_text(x)).tolist()
@@ -322,9 +325,14 @@ if selected_product:
             forecast_df = forecast_discounts_arima(product_data, future_days=5)
         
         if forecast_df is not None:
-            st.subheader("Forecasted Discounts")
+            st.subheader("❄️ FORECASTED DISCOUNTS")
             st.line_chart(forecast_df["Predicted_Discount"])
-            st.write(forecast_df)
+            # st.write(forecast_df)
+            
+
+            # Create a full-width container for the Discounts table.
+            with st.container():
+                st.dataframe(forecast_df, use_container_width=True)
         else:
             st.error("Forecasting failed. Please check your data.")
 
@@ -332,7 +340,7 @@ if selected_product:
 
     # Strategic Recommendations
     if not product_reviews.empty and not product_data.empty:
-        st.subheader("📌 Strategic Recommendations 🧠 🌌")
+        st.subheader("📌 STRATEGIC RECOMMENDATIONS 🧠 🌌")
         with st.spinner("Generating strategic recommendations..."):
             
             # Generate strategy recommendation with the correct data format
@@ -354,4 +362,4 @@ if selected_product:
 else:
     st.warning("⚠️ Please select a product to analyze.")
 
-st.markdown("<h6 style='text-align: center;'>© 2025 E-Commerce Strategy Dashboard</h6>", unsafe_allow_html=True)
+st.markdown("<h6 style='text-align: center;'>© 2025 MarketSense: E-Commerce Strategy Dashboard</h6>", unsafe_allow_html=True)
