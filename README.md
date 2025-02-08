@@ -66,5 +66,6 @@ streamlit run app.py
 3. View competitor analysis, sentiment trends, and discount forecasts.  
 4. Get strategic recommendations and real-time notifications.  
 
-## License  
-This project is licensed under the MIT License.
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
