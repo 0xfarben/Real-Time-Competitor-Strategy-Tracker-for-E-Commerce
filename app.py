@@ -10,9 +10,9 @@ from statsmodels.tsa.arima.model import ARIMA
 
 
 ############# CONSTANTS #############
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "gsk_your_api_key"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-SLACK_WEBHOOK = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK = "Paste_the_webhook_here"
 
 
 ############# HELPER FUNCTIONS #############
@@ -353,3 +353,4 @@ else:
 
 # App Footer
 st.markdown("<h6 style='text-align: center;'>© 2025 MarketSense: E-Commerce Strategy Dashboard</h6>", unsafe_allow_html=True)
+
