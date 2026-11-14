@@ -84,7 +84,12 @@ $env:GROQ_API_KEY="your_groq_api_key"
 export GROQ_API_KEY="your_groq_api_key"
 ```
 
-The app uses `llama-3.1-8b-instant` by default. To use another available Groq model, set the optional `GROQ_MODEL` environment variable.
+The app uses `openai/gpt-oss-20b` by default. Groq retired the previous
+`llama-3.1-8b-instant` default for free and developer-tier accounts on
+August 16, 2026. To use another available Groq model, set the optional
+`GROQ_MODEL` environment variable. Model IDs can change; check the current list
+at [Groq supported models](https://console.groq.com/docs/models) if a request
+returns `404 model_not_found`.
 
 #### Slack Webhook Integration (Optional)
 1. Go to the [Slack API](https://api.slack.com).

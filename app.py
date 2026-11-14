@@ -12,7 +12,7 @@ from statsmodels.tsa.arima.model import ARIMA
 
 ############# CONSTANTS #############
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 SENTIMENT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
 MIN_FORECAST_OBSERVATIONS = 8
 
@@ -244,6 +244,41 @@ def summarize_sentiment(sentiments):
     return summary.round(3).to_string()
 
 
+def raise_for_groq_status(response):
+    """Raise an HTTP error that includes Groq's useful response message."""
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        try:
+            response_data = response.json()
+        except ValueError:
+            error_detail = response.text.strip()
+        else:
+            groq_error = (
+                response_data.get("error")
+                if isinstance(response_data, dict)
+                else None
+            )
+            if isinstance(groq_error, dict):
+                error_detail = groq_error.get("message") or groq_error.get("code", "")
+            else:
+                error_detail = str(groq_error or "")
+
+        message_parts = [str(error)]
+        if error_detail:
+            message_parts.append(f"Groq API message: {error_detail}")
+        if response.status_code == 404:
+            message_parts.append(
+                "Verify GROQ_MODEL against https://console.groq.com/docs/models."
+            )
+
+        raise requests.HTTPError(
+            " ".join(message_parts),
+            request=error.request,
+            response=response,
+        ) from error
+
+
 def generate_strategy_recommendation(
     product_name,
     product_data,
@@ -303,7 +338,7 @@ def generate_strategy_recommendation(
         headers=headers,
         timeout=60,
     )
-    groq_response.raise_for_status()
+    raise_for_groq_status(groq_response)
     return groq_response.json()["choices"][0]["message"]["content"]
 
 
