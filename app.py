@@ -1,23 +1,37 @@
+import importlib.util
 import os
-import json
-import requests
-import pandas as pd
-import streamlit as st 
-import plotly.express as px
 from datetime import datetime
-from transformers import pipeline
+from urllib.parse import urlparse
+
+import pandas as pd
+import plotly.express as px
+import requests
+import streamlit as st
 from statsmodels.tsa.arima.model import ARIMA
 
 
 ############# CONSTANTS #############
-GROQ_API_KEY = "gsk_your_api_key"
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-SLACK_WEBHOOK = "Paste_the_webhook_here"
+DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+SENTIMENT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
+MIN_FORECAST_OBSERVATIONS = 8
 
 
 ############# HELPER FUNCTIONS #############
-def truncate_text(text, max_length=512):
-    return text[:max_length]
+def get_config_value(name, default=""):
+    """Read configuration from the environment or Streamlit secrets."""
+    environment_value = os.getenv(name)
+    if environment_value:
+        return environment_value.strip()
+
+    try:
+        secret_value = st.secrets.get(name, default)
+    except Exception:
+        # Streamlit raises when no secrets file exists. Environment variables
+        # remain sufficient for local development.
+        secret_value = default
+
+    return str(secret_value).strip() if secret_value is not None else default
 
 
 def load_csv(file_path):
@@ -27,151 +41,246 @@ def load_csv(file_path):
             st.error(f"File not found: {file_path}")
             return pd.DataFrame()
         return pd.read_csv(file_path)
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
+    except (OSError, pd.errors.ParserError) as error:
+        st.error(f"Failed to load {file_path}: {error}")
         return pd.DataFrame()
-    
 
-# NOTE - Use this link for manual testing of Sentiments -> 
-# https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english
-def analyze_sentiment(reviews):
-    """Analyze sentiment of reviews using a pre-trained model."""
-    try:
-        sentiment_pipeline = pipeline(
-            task="text-classification",
-            model="cardiffnlp/twitter-roberta-base-sentiment"
+
+@st.cache_resource(show_spinner=False)
+def load_sentiment_pipeline():
+    """Load and cache the PyTorch sentiment model."""
+    if importlib.util.find_spec("torch") is None:
+        raise RuntimeError(
+            "PyTorch is not installed. Run "
+            "`python -m pip install -r requirements.txt` and restart the app."
         )
-        res = sentiment_pipeline(reviews)
-        return res
-    except Exception as e:
-        st.error(f"Sentiment analysis failed: {e}")
-        return None
+
+    # Import lazily so an incomplete environment produces a clear dashboard
+    # message instead of warnings and a `torch is not defined` exception.
+    from transformers import pipeline
+
+    return pipeline(
+        task="text-classification",
+        model=SENTIMENT_MODEL,
+        device=-1,
+    )
+
+
+def analyze_sentiment(reviews):
+    """Analyze review sentiment using the cached pre-trained model."""
+    cleaned_reviews = [str(review).strip() for review in reviews if str(review).strip()]
+    if not cleaned_reviews:
+        return []
+
+    sentiment_pipeline = load_sentiment_pipeline()
+    return sentiment_pipeline(
+        cleaned_reviews,
+        batch_size=8,
+        truncation=True,
+        max_length=512,
+    )
+
+
+def normalize_sentiment_label(label):
+    """Convert model-specific labels into dashboard labels."""
+    label_mapping = {
+        "LABEL_0": "Negative",
+        "LABEL_1": "Neutral",
+        "LABEL_2": "Positive",
+        "NEGATIVE": "Negative",
+        "NEUTRAL": "Neutral",
+        "POSITIVE": "Positive",
+    }
+    normalized_label = str(label).strip().upper()
+    return label_mapping.get(normalized_label, str(label).title())
 
 
 def forecast_discounts_arima(data, future_days=5):
-    """
-    Forecast future discounts using the ARIMA model.
-    Args:
-        data (pd.DataFrame): A DataFrame containing a "Discount" column and a time-based index.
-        future_days (int): Number of future days to forecast.
-    Returns:
-        pd.DataFrame: A DataFrame containing forecasted discounts with future dates as the index.
-    """
+    """Forecast discounts after converting observations to a daily series."""
+    if "Discount" not in data.columns:
+        raise ValueError("The competitor data does not contain a Discount column.")
 
-    try:
-        # Ensure the index is a DatetimeIndex
-        if not isinstance(data.index, pd.DatetimeIndex):
-            st.error("Index must be a DatetimeIndex for ARIMA forecasting.")
-            return None
+    discount_series = pd.to_numeric(data["Discount"], errors="coerce")
+    discount_series.index = pd.to_datetime(discount_series.index, errors="coerce")
+    discount_series = discount_series[
+        discount_series.index.notna() & discount_series.notna()
+    ]
 
-        # Fit the ARIMA model
-        discount_series = data["Discount"]
-        model = ARIMA(discount_series, order=(5, 1, 0))
-        model_fit = model.fit()
+    # Source records contain one observation per day at varying times. Normalize
+    # those timestamps and aggregate duplicate calendar dates before forecasting.
+    discount_series.index = discount_series.index.normalize()
+    discount_series = discount_series.groupby(level=0).mean().sort_index()
 
-        # Generate forecast
-        forecast = model_fit.forecast(steps=future_days)
-
-        ## Create a DataFrame for the forecasted values
-        future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=future_days, freq='D')
-        forecast_df = pd.DataFrame({"Date": future_dates, "Predicted_Discount": forecast})
-        forecast_df.set_index("Date", inplace=True)
-
-        return forecast_df
-    except Exception as e:
-        st.error(f"ARIMA forecasting failed: {e}")
-        return None
-
-
-def send_to_slack(message):
-    """Send a message to Slack via a webhook."""
-    payload = {"text": message}
-    try:
-        response = requests.post(
-            SLACK_WEBHOOK,
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
+    if len(discount_series) < MIN_FORECAST_OBSERVATIONS:
+        raise ValueError(
+            "At least "
+            f"{MIN_FORECAST_OBSERVATIONS} daily observations are required; "
+            f"found {len(discount_series)}."
         )
-        if response.status_code != 200:
-            st.error(f"Slack API error: {response.status_code} - {response.text}")
-    except Exception as e:
-        st.error(f"Failed to send message to Slack: {e}")
+
+    daily_index = pd.date_range(
+        start=discount_series.index.min(),
+        end=discount_series.index.max(),
+        freq="D",
+    )
+    discount_series = discount_series.reindex(daily_index)
+    discount_series = discount_series.interpolate(method="time").ffill().bfill()
+    discount_series.index.name = "Date"
+
+    model = ARIMA(discount_series, order=(5, 1, 0))
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=future_days)
+
+    future_dates = pd.date_range(
+        start=discount_series.index[-1] + pd.Timedelta(days=1),
+        periods=future_days,
+        freq="D",
+    )
+    forecast_values = pd.Series(forecast.to_numpy(), index=future_dates).clip(0, 100)
+    return forecast_values.rename("Predicted_Discount").to_frame().rename_axis("Date")
 
 
-def generate_strategy_recommendation(product_name, product_data, sentiment):
-    """
-    Generate strategic recommendations using OpenAI GPT-4, Groq AI, and Gemini AI.
-    
-    Args:
-        product_name (str): Name of the product.
-        competitor_data (str): Competitor pricing and discount data.
-        sentiment (str): Sentiment analysis data.
-        api_keys (dict): Dictionary containing API keys for OpenAI and Groq AI.
-    
-    Returns:
-        dict: A dictionary containing responses from OpenAI GPT-4, Groq AI, and Gemini AI.
-    """
-    if competitor_data is None or sentiment is None:
-        return {"error": "Insufficient data to generate recommendations."}
+def is_valid_webhook_url(webhook_url):
+    """Return whether a configured webhook is a usable HTTPS URL."""
+    if not webhook_url:
+        return False
 
-    date = datetime.now()
-    # Mapping sentiment labels if not already mapped
-    sentiment_mapping = {
-        'LABEL_0': 'Negative',
-        'LABEL_1': 'Neutral',
-        'LABEL_2': 'Positive'
+    parsed_url = urlparse(webhook_url)
+    return parsed_url.scheme == "https" and bool(parsed_url.netloc)
+
+
+def send_to_slack(message, webhook_url):
+    """Send a message to Slack via a validated webhook."""
+    response = requests.post(
+        webhook_url,
+        json={"text": message},
+        timeout=15,
+    )
+    response.raise_for_status()
+
+
+def prepare_competitor_data(data):
+    """Validate and normalize competitor data without deprecated mutations."""
+    required_columns = {"Date", "Product_Name", "Price", "MRP", "Discount"}
+    missing_columns = required_columns.difference(data.columns)
+    if missing_columns:
+        raise ValueError(
+            "Products.csv is missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    prepared_data = data.copy()
+    for column in ("Price", "MRP", "Discount"):
+        prepared_data[column] = pd.to_numeric(prepared_data[column], errors="coerce")
+
+    prepared_data["Date"] = pd.to_datetime(prepared_data["Date"], errors="coerce")
+    prepared_data = prepared_data.dropna(
+        subset=["Date", "Product_Name", "Price", "MRP", "Discount"]
+    )
+    return prepared_data.set_index("Date").sort_index()
+
+
+def prepare_reviews_data(data):
+    """Validate and normalize review data without deprecated mutations."""
+    required_columns = {
+        "Product_Name",
+        "Review_Date",
+        "Rating",
+        "Review_Title",
+        "Review_Text",
     }
+    missing_columns = required_columns.difference(data.columns)
+    if missing_columns:
+        raise ValueError(
+            "Reviews.csv is missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
 
-    # Check if sentiment_mapped is defined or set a default value
-    if 'sentiment_mapped' not in locals():
-        sentiment_mapped = []  # Initialize as an empty list or appropriate default
+    prepared_data = data.copy()
+    prepared_data["Review_Date"] = pd.to_datetime(
+        prepared_data["Review_Date"], errors="coerce"
+    )
+    prepared_data["Rating"] = pd.to_numeric(prepared_data["Rating"], errors="coerce")
+    return prepared_data.dropna(
+        subset=["Product_Name", "Review_Date", "Rating", "Review_Text"]
+    )
 
-    # If you have multiple results
-    if isinstance(sentiment_mapped, list) and sentiment_mapped:
-        sentiment_mapped = [
-            {
-                'label': sentiment_mapping.get(item['label'], 'Unknown'),
-                'score': item['score']
-            } for item in sentiment_mapped
-        ]
-    elif isinstance(sentiment_mapped, str):  # For a single result
-        sentiment_mapped = sentiment_mapping.get(sentiment_mapped, 'Unknown')
-    else:
-        sentiment_mapped = 'Unknown'
 
-    # Format sentiment data for the prompt
-    if isinstance(sentiment_mapped, list):
-        sentiment_details = [
-            f"{item['label']} (Score: {item['score']:.2f})"
-            for item in sentiment_mapped
-        ]
-        sentiment_summary = ", ".join(sentiment_details)
-    else:
-        sentiment_summary = sentiment_mapped  # For single result or 'Unknown'
+def summarize_competitor_data(product_data):
+    """Create a compact recent-data snapshot suitable for the Groq prompt."""
+    snapshot = product_data.reset_index().sort_values("Date").tail(30)
+    summary_columns = [
+        column
+        for column in (
+            "Date",
+            "Brand",
+            "Price",
+            "MRP",
+            "Discount",
+            "Stock_Status",
+            "Rating",
+        )
+        if column in snapshot.columns
+    ]
+    return snapshot[summary_columns].to_csv(index=False)
 
-    print(product_data)
-    # Final Prompt
+
+def summarize_sentiment(sentiments):
+    """Summarize sentiment labels and confidence scores for the Groq prompt."""
+    sentiment_data = pd.DataFrame(sentiments)
+    if sentiment_data.empty or "label" not in sentiment_data.columns:
+        return "No sentiment results available"
+
+    sentiment_data["label"] = sentiment_data["label"].apply(
+        normalize_sentiment_label
+    )
+    sentiment_data["score"] = pd.to_numeric(
+        sentiment_data.get("score"), errors="coerce"
+    )
+    summary = sentiment_data.groupby("label", dropna=False).agg(
+        Reviews=("label", "size"),
+        Average_Confidence=("score", "mean"),
+    )
+    return summary.round(3).to_string()
+
+
+def generate_strategy_recommendation(
+    product_name,
+    product_data,
+    sentiments,
+    api_key,
+    model_name=DEFAULT_GROQ_MODEL,
+):
+    """Generate strategic recommendations with the configured Groq model."""
+    if product_data is None or product_data.empty or not sentiments:
+        raise ValueError("Competitor and sentiment data are required.")
+
+    competitor_summary = summarize_competitor_data(product_data)
+    sentiment_summary = summarize_sentiment(sentiments)
+
     prompt = f"""
         You are a highly skilled business strategist specializing in **Indian e-commerce**. Based on the following details, suggest strategic recommendations:
 
         ### **Product Details**
         - **Product Name**: {product_name}
-        - **Competitor Data** (Prices are in INR ₹, NOT in USD $): {product_data}
-        - **Sentiment Analysis** (Mapped labels: {sentiment_summary})
-        - **Today's Date**: {str(date)}
+        - **Recent Competitor Data** (Prices are in INR ₹, NOT in USD $):
+        {competitor_summary}
+        - **Sentiment Analysis Summary**:
+        {sentiment_summary}
+        - **Today's Date**: {datetime.now().date().isoformat()}
 
         ### **Task:**
-        1. **Pricing Strategy:**  
-        - Analyze competitor pricing trends and suggest optimal pricing (considering INR ₹ as the currency).  
-        - Ensure recommendations **do not assume USD**; prices should be in INR ₹.  
+        1. **Pricing Strategy:**
+        - Analyze competitor pricing trends and suggest optimal pricing (considering INR ₹ as the currency).
+        - Ensure recommendations **do not assume USD**; prices should be in INR ₹.
         - Suggest a discounting approach based on **predicted discounts** and **customer sentiment trends**.
 
-        2. **Promotional Campaign Ideas:**  
-        - Recommend marketing and promotional tactics based on sentiment trends (e.g., more discounts if sentiment is negative).  
+        2. **Promotional Campaign Ideas:**
+        - Recommend marketing and promotional tactics based on sentiment trends (e.g., more discounts if sentiment is negative).
         - Identify product positioning strategies to **differentiate from competitors**.
 
-        3. **Customer Satisfaction Recommendations:**  
-        - Use sentiment insights to **improve product perception**.  
+        3. **Customer Satisfaction Recommendations:**
+        - Use sentiment insights to **improve product perception**.
         - Provide suggestions based on the **most common negative feedback themes**.
 
         ### **Important Considerations:**
@@ -179,178 +288,225 @@ def generate_strategy_recommendation(product_name, product_data, sentiment):
         - Use sentiment labels correctly (Negative, Neutral, Positive) instead of generic AI labels (LABEL_0, LABEL_1, LABEL_2).
         - Provide **actionable**, **data-driven** recommendations specific to the Indian e-commerce market.
     """
-    try:
-        groq_data = {
-            "messages": [{"role": "user", "content": prompt}],
-            "model": "llama3-8b-8192",
-            "temperature": 0,
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}"
-        }
-        groq_response = requests.post(
-            GROQ_ENDPOINT,
-            json=groq_data,
-            headers=headers,
-        )
-        groq_response.raise_for_status()  # Ensure no HTTP errors
-        responses = groq_response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        responses = f"Error generating recommendations with Groq AI: {e}"
-    return responses
+    groq_data = {
+        "messages": [{"role": "user", "content": prompt}],
+        "model": model_name,
+        "temperature": 0,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    groq_response = requests.post(
+        GROQ_ENDPOINT,
+        json=groq_data,
+        headers=headers,
+        timeout=60,
+    )
+    groq_response.raise_for_status()
+    return groq_response.json()["choices"][0]["message"]["content"]
 
 
 ############# APP STARTS HERE #############
 
-# Load CSV Files
-competitor_data = load_csv(r"Products.csv")
-reviews_data = load_csv(r"Reviews.csv")
 
-# Confirm the datatypes of the products.csv columns for better forecasting, and remove NULL values etc.
-if not competitor_data.empty:
-    competitor_data["Discount"] = competitor_data["Discount"].astype(float)
-    competitor_data = competitor_data.dropna(subset=["Price", "MRP", "Discount"])
-    competitor_data["Date"] = pd.to_datetime(competitor_data["Date"], errors="coerce")
-    competitor_data.dropna(subset=["Date"], inplace=True)
-    competitor_data.set_index("Date", inplace=True)
+def main():
+    """Render the Streamlit dashboard."""
+    st.set_page_config(
+        page_title="MarketSense: E-Commerce Competitor Strategy Dashboard",
+        page_icon="https://iili.io/2QnnboB.md.jpg",
+        layout="wide",
+    )
 
-# Confirm the datatypes of the of the reviews.csv coulmns for better forecasting, and remove NULL values etc.
-if not reviews_data.empty:
-    reviews_data["Review_Date"] = pd.to_datetime(reviews_data["Review_Date"], errors="coerce")
-    reviews_data.dropna(subset=["Review_Date", "Rating", "Review_Text"], inplace=True)
+    competitor_data = load_csv("Products.csv")
+    reviews_data = load_csv("Reviews.csv")
 
-# Streamlit App Setup
-st.set_page_config(
-    page_title="MarketSense: E-Commerce Competitor Strategy Dashboard",
-    page_icon="https://iili.io/2QnnboB.md.jpg",
-    layout="wide"
-)
+    try:
+        if not competitor_data.empty:
+            competitor_data = prepare_competitor_data(competitor_data)
+        if not reviews_data.empty:
+            reviews_data = prepare_reviews_data(reviews_data)
+    except ValueError as error:
+        st.error(f"Data validation failed: {error}")
+        return
 
-# Page Title
-st.markdown("<h1 style='text-align: center;'> E-Commerce 🛒 Competitor Strategy Dashboard</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "<h1 style='text-align: center;'>"
+        "E-Commerce 🛒 Competitor Strategy Dashboard"
+        "</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<h3 style='text-align: center;'>📌 Select a Product to Analyze 📌</h3>",
+        unsafe_allow_html=True,
+    )
 
-# Product Selection Panel
-st.markdown("<h3 style='text-align: center;'>📌 Select a Product to Analyze 📌 </h3>", unsafe_allow_html=True)
+    products = (
+        reviews_data["Product_Name"].dropna().unique().tolist()
+        if not reviews_data.empty
+        else []
+    )
+    with st.container():
+        _, product_column, _ = st.columns([1, 5, 1])
+        with product_column:
+            selected_product = (
+                st.selectbox(
+                    "Product",
+                    products,
+                    key="product_select",
+                    label_visibility="collapsed",
+                )
+                if products
+                else None
+            )
 
-# Create a full-width row layout for dropdown
-col1, col2, col3 = st.columns([1, 5, 1])  # Middle column wider
-with col2:
-    products = reviews_data["Product_Name"].unique().tolist() if not reviews_data.empty else []
-    selected_product = st.selectbox("", products, key="product_select") if products else None
+    if not selected_product:
+        st.warning("⚠️ No products with review data are available.")
+        return
 
-
-# Display Product Analysis Section
-if selected_product:
-    product_reviews = reviews_data[reviews_data["Product_Name"] == selected_product]
-    product_data = competitor_data[competitor_data["Product_Name"] == selected_product]
+    product_reviews = reviews_data[
+        reviews_data["Product_Name"] == selected_product
+    ]
+    product_data = (
+        competitor_data[competitor_data["Product_Name"] == selected_product]
+        if not competitor_data.empty
+        else pd.DataFrame()
+    )
+    sentiments = []
 
     st.divider()
-    st.header(f"📈 COMPETITOR ANALYSIS")
+    st.header("📈 COMPETITOR ANALYSIS")
     st.subheader(f"📊 Product: {selected_product}")
 
-    # ------------ Sentiment Analysis ------------ 
-    if not product_reviews.empty:
-        asin = product_data["Product_ASIN"].values[0]  # Get ASIN from CSV
-        
-        if asin:
-            # Generate Amazon Image URL
-            product_image_url = f"https://images.amazon.com/images/P/{asin}.jpg"
-            # Display Product Image with medium size
-            st.markdown(f"<div style='text-align: center;'><img src='{product_image_url}' alt='{selected_product}' width='400'/></div>", unsafe_allow_html=True)
-        else:
-            st.warning("⚠️ ASIN not found for this product. Image unavailable.")
-        st.divider()
+    if not product_data.empty and "Product_ASIN" in product_data.columns:
+        asin_values = product_data["Product_ASIN"].dropna()
+        if not asin_values.empty:
+            product_image_url = (
+                f"https://images.amazon.com/images/P/{asin_values.iloc[0]}.jpg"
+            )
+            st.markdown(
+                "<div style='text-align: center;'>"
+                f"<img src='{product_image_url}' alt='Selected product' width='400'/>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-        # Display Product Image
-        st.subheader("🗣️ CUSTOMER SENTIMENT ANALYSIS")
-        
-        # Extract reviews and truncate text if necessary
-        reviews = product_reviews["Review_Text"].apply(lambda x: truncate_text(x)).tolist()
+    st.divider()
+    st.subheader("🗣️ CUSTOMER SENTIMENT ANALYSIS")
 
-        # Analyze sentiment with a loading spinner
-        with st.spinner("Analyzing sentiment..."):
-            sentiments = analyze_sentiment(reviews)
-        
+    if product_reviews.empty:
+        st.warning("⚠️ No reviews are available for this product.")
+    else:
+        reviews = product_reviews["Review_Text"].astype(str).tolist()
+        try:
+            with st.spinner("Analyzing sentiment..."):
+                sentiments = analyze_sentiment(reviews)
+        except Exception as error:
+            st.error(f"Sentiment analysis failed: {error}")
+
         if sentiments:
             sentiment_df = pd.DataFrame(sentiments)
-            label_mapping = {
-                "LABEL_0": "Negative",
-                "LABEL_1": "Neutral",
-                "LABEL_2": "Positive"
-            }
-            sentiment_df["label"] = sentiment_df["label"].map(label_mapping)
-
-            # Define custom colors for each sentiment
+            sentiment_df["label"] = sentiment_df["label"].apply(
+                normalize_sentiment_label
+            )
+            sentiment_counts = (
+                sentiment_df["label"]
+                .value_counts()
+                .rename_axis("Sentiment")
+                .reset_index(name="Reviews")
+            )
             color_map = {
-                "Negative": "#f54248",  # Red for negative sentiment
-                "Neutral": "#42ddf5",   # Blue for neutral sentiment
-                "Positive": "#69f542"   # Green for positive sentiment
+                "Negative": "#f54248",
+                "Neutral": "#42ddf5",
+                "Positive": "#69f542",
             }
-
-            # Create the bar chart with custom colors
-            fig = px.bar(
-                sentiment_df,
-                x="label",
-                color="label",
-                color_discrete_map=color_map
+            sentiment_chart = px.bar(
+                sentiment_counts,
+                x="Sentiment",
+                y="Reviews",
+                color="Sentiment",
+                color_discrete_map=color_map,
             )
-            st.plotly_chart(fig)
+            st.plotly_chart(sentiment_chart, width="stretch")
 
-            # Display top 10 reviews
-            num_reviews_to_display = 10
-            reviews_to_display = product_reviews[["Review_Title", "Review_Text"]].head(num_reviews_to_display)
+            reviews_to_display = product_reviews[
+                ["Review_Title", "Review_Text"]
+            ].head(10).copy()
             reviews_to_display.index = range(1, len(reviews_to_display) + 1)
+            st.dataframe(reviews_to_display, width="stretch")
 
-            # Create a full-width container for the reviews
-            with st.container():
-                st.dataframe(reviews_to_display, use_container_width=True)
     st.divider()
-
-
-    # ------------ Competitor Data Analysis ------------ 
-    # Check if there's sufficient data for forecasting
-    if len(product_data) < 6:
-        st.warning("⚠️ Insufficient data for ARIMA forecasting. At least 6 data points are required.")
+    if product_data.empty:
+        st.warning("⚠️ No competitor history is available for this product.")
     else:
-        # Perform forecasting with a loading spinner
-        with st.spinner("Forecasting discounts using ARIMA..."):
-            forecast_df = forecast_discounts_arima(product_data, future_days=5)
-        
-        if forecast_df is not None:
-            st.subheader("❄️ FORECASTED DISCOUNTS")
-            st.line_chart(forecast_df["Predicted_Discount"])
+        try:
+            with st.spinner("Forecasting discounts using ARIMA..."):
+                forecast_df = forecast_discounts_arima(product_data, future_days=5)
 
-            # Create a full-width container for the Discounts table.
-            with st.container():
-                st.dataframe(forecast_df, use_container_width=True)
-        else:
-            st.error("Forecasting failed. Please check your data.")
+            st.subheader("❄️ FORECASTED DISCOUNTS")
+            st.line_chart(forecast_df["Predicted_Discount"], width="stretch")
+            st.dataframe(forecast_df, width="stretch")
+        except Exception as error:
+            st.error(f"ARIMA forecasting failed: {error}")
 
     st.divider()
+    st.subheader("📌 STRATEGIC RECOMMENDATIONS 🧠 🌌")
 
-    # ------------ Strategic Recommendations ------------ 
-    if not product_reviews.empty and not product_data.empty:
-        st.subheader("📌 STRATEGIC RECOMMENDATIONS 🧠 🌌")
-        with st.spinner("Generating strategic recommendations..."):
-            
-            # Generate strategy recommendation with the correct data format
-            response = generate_strategy_recommendation(
-                product_name=selected_product,
-                product_data=product_data.reset_index(inplace=True),
-                sentiment=sentiments
-            )
-                    
-        if response:
+    groq_api_key = get_config_value("GROQ_API_KEY")
+    if product_data.empty or not sentiments:
+        st.info(
+            "Recommendations require both competitor history and sentiment results."
+        )
+    elif not groq_api_key:
+        st.info(
+            "Groq recommendations are disabled. Set the GROQ_API_KEY environment "
+            "variable and restart the app to enable them."
+        )
+    else:
+        try:
+            with st.spinner("Generating strategic recommendations..."):
+                response = generate_strategy_recommendation(
+                    product_name=selected_product,
+                    product_data=product_data,
+                    sentiments=sentiments,
+                    api_key=groq_api_key,
+                    model_name=get_config_value(
+                        "GROQ_MODEL", DEFAULT_GROQ_MODEL
+                    ),
+                )
             st.success(response)
-            # Send recommendations to Slack Channel
-            with st.spinner("Sending recommendations to Slack..."):
-                send_to_slack(response)
-        else:
-            st.error("Failed to generate recommendations.")
-else:
-    st.warning("⚠️ Please select a product to analyze.")
 
-# App Footer
-st.markdown("<h6 style='text-align: center;'>© 2025 MarketSense: E-Commerce Strategy Dashboard</h6>", unsafe_allow_html=True)
+            slack_webhook = get_config_value("SLACK_WEBHOOK_URL")
+            if is_valid_webhook_url(slack_webhook):
+                if st.button("Send recommendation to Slack"):
+                    try:
+                        with st.spinner("Sending recommendation to Slack..."):
+                            send_to_slack(response, slack_webhook)
+                        st.success("Recommendation sent to Slack.")
+                    except requests.RequestException as error:
+                        st.error(f"Failed to send the Slack notification: {error}")
+            elif slack_webhook:
+                st.warning(
+                    "Slack notification is disabled because SLACK_WEBHOOK_URL "
+                    "is not a valid HTTPS URL."
+                )
+            else:
+                st.caption(
+                    "Slack notification is optional. Set SLACK_WEBHOOK_URL to "
+                    "enable it."
+                )
+        except requests.RequestException as error:
+            st.error(f"Groq request failed: {error}")
+        except (KeyError, TypeError, ValueError) as error:
+            st.error(f"Groq returned an unexpected response: {error}")
 
+    st.markdown(
+        "<h6 style='text-align: center;'>"
+        f"© {datetime.now().year} MarketSense: E-Commerce Strategy Dashboard"
+        "</h6>",
+        unsafe_allow_html=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
