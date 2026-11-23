@@ -1,4 +1,4 @@
-# Real-Time Competitor Strategy Tracker for E-Commerce  
+# MarketSense- E-Commerce Competitor Strategy Dashboard
 
 ## Project Overview  
 This project provides real-time competitive intelligence for e-commerce businesses. It tracks competitor pricing, discount strategies, and customer sentiment using machine learning and large language models.  
