@@ -367,7 +367,7 @@ def main():
 
     st.markdown(
         "<h1 style='text-align: center;'>"
-        "E-Commerce 🛒 Competitor Strategy Dashboard"
+        "MarketSense- E-Commerce 🛒 Competitor Strategy Dashboard"
         "</h1>",
         unsafe_allow_html=True,
     )
